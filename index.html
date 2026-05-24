@@ -458,7 +458,9 @@ function renderCurrent() {
   for (let i = 0; i < total; i++) {
     const j = (i + 1) % total;
     const p1 = posArr[i], p2 = posArr[j];
-    const midAngle = (p1.angle + p2.angle) / 2;
+    let a1 = p1.angle, a2 = p2.angle;
+    if (a2 < a1) a2 += Math.PI * 2;
+    const midAngle = (a1 + a2) / 2;
     const bulge = radius * 1.15;
     const mx = bulge * Math.cos(midAngle);
     const mz = bulge * Math.sin(midAngle);

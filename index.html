@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory Palace</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #0a0a14; font-family: 'Segoe UI', system-ui, sans-serif; }
+  #container { width: 100vw; height: 100vh; }
+
+  #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+  #ui > * { pointer-events: auto; }
+
+  #addBtn {
+    position: fixed; bottom: 32px; right: 32px;
+    width: 64px; height: 64px; border-radius: 50%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white; font-size: 32px; border: none; cursor: pointer;
+    box-shadow: 0 6px 24px rgba(102,126,234,0.4);
+    transition: transform 0.2s, box-shadow 0.2s;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 300; line-height: 1;
+  }
+  #addBtn:hover { transform: scale(1.1); box-shadow: 0 8px 32px rgba(102,126,234,0.6); }
+
+  #breadcrumb {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,20,40,0.85); backdrop-filter: blur(12px);
+    padding: 10px 20px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    display: flex; gap: 8px; align-items: center; font-size: 14px;
+    color: rgba(255,255,255,0.5); max-width: 90vw; overflow-x: auto;
+    white-space: nowrap;
+  }
+  #breadcrumb span { cursor: pointer; color: rgba(255,255,255,0.7); transition: color 0.2s; }
+  #breadcrumb span:hover { color: #667eea; }
+  #breadcrumb .current { color: white; font-weight: 600; }
+  #breadcrumb .sep { color: rgba(255,255,255,0.2); }
+
+  #notePanel {
+    position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+    background: rgba(20,20,40,0.92); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px; padding: 20px 24px;
+    display: none; flex-direction: column; gap: 12px;
+    min-width: 300px; max-width: 500px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+  }
+  #notePanel.visible { display: flex; }
+  #notePanel .header {
+    display: flex; justify-content: space-between; align-items: center;
+    color: white; font-size: 14px;
+  }
+  #notePanel .header .num { font-weight: 700; font-size: 18px; }
+  #notePanel .header .close {
+    cursor: pointer; color: rgba(255,255,255,0.4); font-size: 20px;
+    background: none; border: none; transition: color 0.2s;
+  }
+  #notePanel .header .close:hover { color: #ff6b6b; }
+  #notePanel textarea {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px; color: white; padding: 12px;
+    font-size: 14px; resize: vertical; min-height: 80px;
+    outline: none; font-family: inherit;
+    transition: border-color 0.2s;
+  }
+  #notePanel textarea:focus { border-color: #667eea; }
+  #notePanel .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  #notePanel .actions button {
+    padding: 8px 20px; border-radius: 8px; border: none;
+    cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity 0.2s;
+  }
+  #notePanel .actions button:hover { opacity: 0.85; }
+  #saveNote { background: #667eea; color: white; }
+  #deleteNote { background: #e74c3c; color: white; }
+
+  #hint {
+    position: fixed; bottom: 110px; right: 32px;
+    color: rgba(255,255,255,0.25); font-size: 12px;
+    text-align: right; line-height: 1.6;
+    pointer-events: none;
+  }
+
+  .box-tooltip {
+    position: fixed; padding: 4px 10px; border-radius: 6px;
+    font-size: 12px; color: white; pointer-events: none;
+    background: rgba(0,0,0,0.8); z-index: 20;
+    display: none; white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<div id="container"></div>
+
+<div id="ui">
+  <div id="breadcrumb"></div>
+  <button id="addBtn">+</button>
+  <div id="hint">Click a path to go deeper<br>Orbit to explore</div>
+  <div id="notePanel">
+    <div class="header">
+      <span class="num">Box <span id="noteNum"></span></span>
+      <button class="close" id="closeNote">&times;</button>
+    </div>
+    <textarea id="noteText" placeholder="Write your memory note here..."></textarea>
+    <div class="actions"><button id="saveNote">Save</button><button id="deleteNote" class="danger">Delete Box</button></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ====== DATA MODEL ======
+const COLORS = [
+  0xff6b6b, 0xffd93d, 0x6bcb77, 0x4d96ff, 0xff6eb4,
+  0xa66cff, 0x00d2d3, 0xf368e0, 0xff9f43, 0x0abde3,
+  0x10ac84, 0xee5a24, 0x5f27cd, 0x01a3a4, 0xc44569,
+  0x574b90, 0xf8a5c2, 0x7c3aed, 0x2ecc71, 0xe74c3c,
+  0x3498db, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xe67e22
+];
+let colorIdx = 0;
+
+let data = { circles: {}, boxes: {}, rootCircleId: 'root' };
+let currentCircleId = 'root';
+let selectedBoxId = null;
+
+function initData() {
+  const saved = localStorage.getItem('memoryPalace');
+  if (saved) {
+    try { data = JSON.parse(saved); return true; } catch(e) {}
+  }
+  data.circles = {};
+  data.boxes = {};
+  data.rootCircleId = 'root';
+  data.circles['root'] = { id: 'root', parentGap: null, boxIds: [], prefix: '' };
+  addBox('root');
+  addBox('root');
+  save();
+  return false;
+}
+
+function save() { localStorage.setItem('memoryPalace', JSON.stringify(data)); }
+
+function addBox(circleId) {
+  const circle = data.circles[circleId];
+  if (!circle) return null;
+  const idx = circle.boxIds.length;
+  const color = COLORS[colorIdx % COLORS.length]; colorIdx++;
+  const boxId = circleId + '_b' + idx + '_' + Date.now();
+  const displayNum = circle.prefix ? circle.prefix + (idx + 1) : String(idx + 1);
+  data.boxes[boxId] = { id: boxId, number: displayNum, text: '', color, circleId, idx };
+  circle.boxIds.push(boxId);
+  save();
+  return boxId;
+}
+
+function deleteBox(boxId) {
+  const box = data.boxes[boxId];
+  if (!box) return;
+  const circle = data.circles[box.circleId];
+  if (!circle) return;
+  if (circle.boxIds.length <= 1) return; // keep at least 1 box
+
+  const idx = circle.boxIds.indexOf(boxId);
+  if (idx === -1) return;
+
+  // Remove sub-circles that involve gaps with this box
+  for (const gapKey of Object.keys(data.circles)) {
+    const c = data.circles[gapKey];
+    if (c.parentGap && c.parentGap.circleId === box.circleId &&
+       (c.parentGap.boxAIdx === idx || c.parentGap.boxBIdx === idx)) {
+      // Remove boxes in this sub-circle recursively
+      for (const bid of c.boxIds) {
+        deleteRecursiveBoxes(bid);
+      }
+      delete data.circles[gapKey];
+    }
+  }
+
+  // Remove the box
+  circle.boxIds.splice(idx, 1);
+  delete data.boxes[boxId];
+
+  // Re-number boxes in this circle
+  for (let i = 0; i < circle.boxIds.length; i++) {
+    const bid = circle.boxIds[i];
+    const b = data.boxes[bid];
+    if (b) {
+      b.number = circle.prefix ? circle.prefix + (i + 1) : String(i + 1);
+      b.idx = i;
+    }
+  }
+
+  // Update gap keys for sub-circles that contain shifted indices
+  for (const gapKey of Object.keys(data.circles)) {
+    const c = data.circles[gapKey];
+    if (c.parentGap && c.parentGap.circleId === box.circleId) {
+      if (c.parentGap.boxAIdx > idx) c.parentGap.boxAIdx--;
+      if (c.parentGap.boxBIdx > idx) c.parentGap.boxBIdx--;
+    }
+  }
+
+  // If current circle lost a box and currentCircleId === box.circleId, re-render
+  closeNotePanel();
+  save();
+
+  // Remove sub-circle entries with stale keys (rename them)
+  const toRename = [];
+  for (const gapKey of Object.keys(data.circles)) {
+    const c = data.circles[gapKey];
+    if (c.parentGap && c.parentGap.circleId === box.circleId) {
+      const newKey = getSubCircleKey(box.circleId, c.parentGap.boxAIdx, c.parentGap.boxBIdx);
+      if (newKey !== gapKey) {
+        toRename.push({ old: gapKey, c, newKey });
+      }
+    }
+  }
+  for (const { old, c, newKey } of toRename) {
+    c.id = newKey;
+    delete data.circles[old];
+    data.circles[newKey] = c;
+    // Update prefix from new parent box A
+    const parent = data.circles[c.parentGap.circleId];
+    if (parent) {
+      const boxA = data.boxes[parent.boxIds[c.parentGap.boxAIdx]];
+      if (boxA) {
+        c.prefix = boxA.number + '.';
+        // Re-number children
+        for (let i = 0; i < c.boxIds.length; i++) {
+          const bid = c.boxIds[i];
+          const b = data.boxes[bid];
+          if (b) {
+            b.number = c.prefix + (i + 1);
+            b.circleId = newKey;
+          }
+        }
+      }
+    }
+  }
+  save();
+}
+
+function deleteRecursiveBoxes(boxId) {
+  const box = data.boxes[boxId];
+  if (!box) return;
+  delete data.boxes[boxId];
+  // Also remove from its circle's boxIds if still there
+  const circle = data.circles[box.circleId];
+  if (circle) {
+    const idx = circle.boxIds.indexOf(boxId);
+    if (idx !== -1) circle.boxIds.splice(idx, 1);
+  }
+}
+
+function getSubCircleKey(circleId, boxAIdx, boxBIdx) {
+  return circleId + '_gap_' + boxAIdx + '_' + boxBIdx;
+}
+
+function getOrCreateSubCircle(circleId, boxAIdx, boxBIdx) {
+  const key = getSubCircleKey(circleId, boxAIdx, boxBIdx);
+  if (data.circles[key]) return key;
+  const parent = data.circles[circleId];
+  const boxA = data.boxes[parent.boxIds[boxAIdx]];
+  const prefix = boxA.number + '.';
+  data.circles[key] = { id: key, parentGap: { circleId, boxAIdx, boxBIdx }, boxIds: [], prefix };
+  addBox(key);
+  addBox(key);
+  save();
+  return key;
+}
+
+function getAncestorChain(circleId) {
+  const chain = [];
+  let cid = circleId;
+  while (cid) {
+    const c = data.circles[cid];
+    if (!c) break;
+    chain.unshift(c);
+    cid = c.parentGap ? c.parentGap.circleId : null;
+  }
+  return chain;
+}
+
+// ====== THREE SETUP ======
+const container = document.getElementById('container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a14);
+scene.fog = new THREE.Fog(0x0a0a14, 30, 60);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(12, 8, 12);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+container.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0';
+labelRenderer.domElement.style.pointerEvents = 'none';
+container.appendChild(labelRenderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 4;
+controls.maxDistance = 50;
+controls.target.set(0, 0, 0);
+controls.update();
+
+// ====== LIGHTS ======
+const ambient = new THREE.AmbientLight(0x222244, 0.6);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+dirLight.position.set(10, 20, 5);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0x4488ff, 0.5);
+fillLight.position.set(-10, 0, -10);
+scene.add(fillLight);
+const hemi = new THREE.HemisphereLight(0x667eea, 0x0a0a14, 0.3);
+scene.add(hemi);
+
+// ====== GROUND ======
+const gridHelper = new THREE.GridHelper(30, 20, 0x222244, 0x111133);
+gridHelper.position.y = -0.5;
+scene.add(gridHelper);
+
+// ====== RENDER STATE ======
+let circleGroup = new THREE.Group();
+scene.add(circleGroup);
+
+// Camera animation
+let cameraAnimating = false;
+let cameraStart = new THREE.Vector3();
+let cameraEnd = new THREE.Vector3();
+let targetStart = new THREE.Vector3();
+let targetEnd = new THREE.Vector3();
+let animProgress = 0;
+const ANIM_DURATION = 0.6;
+
+function animateCamera(toTarget, toPos) {
+  cameraStart.copy(camera.position);
+  targetStart.copy(controls.target);
+  cameraEnd.copy(toPos);
+  targetEnd.copy(toTarget);
+  animProgress = 0;
+  cameraAnimating = true;
+}
+
+let raycasterTargets = []; // { type, object, data }
+let raycaster = new THREE.Raycaster();
+
+// ====== RENDER FUNCTIONS ======
+function getBoxPosition(circleId, index, total) {
+  const circle = data.circles[circleId];
+  const radius = circle.parentGap ? 3 : 5;
+  const angle = (index / total) * Math.PI * 2 - Math.PI / 2;
+  return { x: radius * Math.cos(angle), z: radius * Math.sin(angle), angle };
+}
+
+function renderCurrent() {
+  while (circleGroup.children.length) {
+    const child = circleGroup.children[0];
+    circleGroup.remove(child);
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  }
+  raycasterTargets = [];
+
+  const circle = data.circles[currentCircleId];
+  if (!circle) { currentCircleId = 'root'; renderCurrent(); return; }
+
+  const total = circle.boxIds.length;
+  if (total === 0) return;
+
+  const isSub = !!circle.parentGap;
+  const radius = isSub ? 3 : 5;
+
+  // If sub-circle, show ghost markers at parent gap boxes
+  if (isSub && circle.parentGap) {
+    const parent = data.circles[circle.parentGap.circleId];
+    if (parent) {
+      for (const idx of [circle.parentGap.boxAIdx, circle.parentGap.boxBIdx]) {
+        const pos = getBoxPosition(circle.parentGap.circleId, idx, parent.boxIds.length);
+        const box = data.boxes[parent.boxIds[idx]];
+        if (box) {
+          const ghostGeo = new THREE.BoxGeometry(0.45, 0.35, 0.45);
+          const ghostMat = new THREE.MeshBasicMaterial({ color: box.color, transparent: true, opacity: 0.15, wireframe: true });
+          const ghost = new THREE.Mesh(ghostGeo, ghostMat);
+          ghost.position.set(pos.x, 0, pos.z);
+          circleGroup.add(ghost);
+          const ld = document.createElement('div');
+          ld.textContent = box.number;
+          ld.style.cssText = 'color:rgba(255,255,255,0.15);font-size:10px;font-weight:400;text-shadow:0 2px 8px rgba(0,0,0,0.5)';
+          const l = new CSS2DObject(ld);
+          l.position.set(pos.x, 0.45, pos.z);
+          circleGroup.add(l);
+        }
+      }
+      // Connection line from origin to parent gap midpoint
+      const gapA = getBoxPosition(circle.parentGap.circleId, circle.parentGap.boxAIdx, parent.boxIds.length);
+      const gapB = getBoxPosition(circle.parentGap.circleId, circle.parentGap.boxBIdx, parent.boxIds.length);
+      const midX = (gapA.x + gapB.x) / 2, midZ = (gapA.z + gapB.z) / 2;
+      const linePts = [new THREE.Vector3(0, -0.3, 0), new THREE.Vector3(midX, -0.3, midZ)];
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(linePts);
+      const lineMat = new THREE.LineDashedMaterial({ color: 0x667eea, transparent: true, opacity: 0.1, dashSize: 0.1, gapSize: 0.1 });
+      const line = new THREE.Line(lineGeo, lineMat);
+      line.computeLineDistances();
+      circleGroup.add(line);
+    }
+  }
+
+  // Circle guide
+  const ringGeo = new THREE.RingGeometry(radius - 0.03, radius + 0.03, 64);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0x222244, side: THREE.DoubleSide, transparent: true, opacity: 0.3 });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -0.45;
+  circleGroup.add(ring);
+
+  // Dots at box positions
+  const posArr = [];
+  for (let i = 0; i < total; i++) {
+    const pos = getBoxPosition(currentCircleId, i, total);
+    posArr.push(pos);
+    const box = data.boxes[circle.boxIds[i]];
+
+    // 3D Box
+    const size = 0.7;
+    const geo = new THREE.BoxGeometry(size, size * 0.6, size);
+    const mat = new THREE.MeshStandardMaterial({
+      color: box.color,
+      roughness: 0.3,
+      metalness: 0.1,
+      emissive: box.color,
+      emissiveIntensity: 0.15,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(pos.x, 0, pos.z);
+    mesh.castShadow = true;
+    mesh.userData.boxId = box.id;
+    circleGroup.add(mesh);
+    raycasterTargets.push({ type: 'box', object: mesh, boxId: box.id });
+
+    // Glow edge
+    const edgeGeo = new THREE.EdgesGeometry(geo);
+    const edgeMat = new THREE.LineBasicMaterial({ color: box.color, transparent: true, opacity: 0.5 });
+    const edge = new THREE.LineSegments(edgeGeo, edgeMat);
+    edge.position.copy(mesh.position);
+    circleGroup.add(edge);
+
+    // Label (CSS2D)
+    const labelDiv = document.createElement('div');
+    labelDiv.textContent = box.number;
+    labelDiv.style.color = 'white';
+    labelDiv.style.fontSize = '14px';
+    labelDiv.style.fontWeight = '700';
+    labelDiv.style.textShadow = '0 2px 8px rgba(0,0,0,0.8), 0 0 20px rgba(0,0,0,0.5)';
+    labelDiv.style.fontFamily = 'system-ui, sans-serif';
+    labelDiv.style.background = 'rgba(0,0,0,0.5)';
+    labelDiv.style.padding = '2px 8px';
+    labelDiv.style.borderRadius = '6px';
+    labelDiv.style.backdropFilter = 'blur(4px)';
+    labelDiv.style.border = '1px solid rgba(255,255,255,0.1)';
+    const label = new CSS2DObject(labelDiv);
+    label.position.set(pos.x, 0.7, pos.z);
+    circleGroup.add(label);
+  }
+
+  // Paths between adjacent boxes
+  for (let i = 0; i < total; i++) {
+    const j = (i + 1) % total;
+    const p1 = posArr[i], p2 = posArr[j];
+    const midAngle = (p1.angle + p2.angle) / 2;
+    const bulge = radius * 1.15;
+    const mx = bulge * Math.cos(midAngle);
+    const mz = bulge * Math.sin(midAngle);
+
+    const curve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(p1.x, 0, p1.z),
+      new THREE.Vector3(mx, 0.15, mz),
+      new THREE.Vector3(p2.x, 0, p2.z)
+    );
+    const pts = curve.getPoints(24);
+    const pathGeo = new THREE.BufferGeometry().setFromPoints(pts);
+    const pathMat = new THREE.LineBasicMaterial({
+      color: 0x667eea, transparent: true, opacity: 0.35, linewidth: 1
+    });
+    const pathLine = new THREE.Line(pathGeo, pathMat);
+    circleGroup.add(pathLine);
+
+    // Glow tube for click interaction
+    const tubeCurve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(p1.x, 0, p1.z),
+      new THREE.Vector3(mx, 0.15, mz),
+      new THREE.Vector3(p2.x, 0, p2.z)
+    );
+    const tubeGeo = new THREE.TubeGeometry(tubeCurve, 16, 0.15, 8, false);
+    const tubeMat = new THREE.MeshBasicMaterial({
+      color: 0x667eea, transparent: true, opacity: 0.08, side: THREE.DoubleSide
+    });
+    const tube = new THREE.Mesh(tubeGeo, tubeMat);
+    tube.userData = { circleId: currentCircleId, boxAIdx: i, boxBIdx: j };
+    circleGroup.add(tube);
+    raycasterTargets.push({
+      type: 'path',
+      object: tube,
+      circleId: currentCircleId,
+      boxAIdx: i,
+      boxBIdx: j
+    });
+
+    // Small arrow/dot at the bulge
+    const dotGeo = new THREE.SphereGeometry(0.08, 8, 8);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0x667eea, transparent: true, opacity: 0.5 });
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.position.set(mx, 0.15, mz);
+    circleGroup.add(dot);
+  }
+
+  updateBreadcrumb();
+}
+
+// ====== BREADCRUMB ======
+function updateBreadcrumb() {
+  const chain = getAncestorChain(currentCircleId);
+  const el = document.getElementById('breadcrumb');
+  el.innerHTML = '';
+  chain.forEach((c, i) => {
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = '›';
+      el.appendChild(sep);
+    }
+    const span = document.createElement('span');
+    const label = c.id === 'root' ? 'Palace' : c.prefix.slice(0, -1) + ' gap';
+    span.textContent = label;
+    if (i === chain.length - 1) span.className = 'current';
+    else {
+      span.style.cursor = 'pointer';
+      span.addEventListener('click', () => {
+        currentCircleId = c.id;
+        renderCurrent();
+        closeNotePanel();
+      });
+    }
+    el.appendChild(span);
+  });
+}
+
+// ====== NOTE PANEL ======
+const notePanel = document.getElementById('notePanel');
+const noteNum = document.getElementById('noteNum');
+const noteText = document.getElementById('noteText');
+
+function openNotePanel(boxId) {
+  const box = data.boxes[boxId];
+  if (!box) return;
+  selectedBoxId = boxId;
+  noteNum.textContent = box.number;
+  noteText.value = box.text || '';
+  notePanel.classList.add('visible');
+  noteText.focus();
+}
+
+function closeNotePanel() {
+  notePanel.classList.remove('visible');
+  selectedBoxId = null;
+}
+
+document.getElementById('saveNote').addEventListener('click', () => {
+  if (selectedBoxId && data.boxes[selectedBoxId]) {
+    data.boxes[selectedBoxId].text = noteText.value;
+    save();
+    closeNotePanel();
+  }
+});
+
+document.getElementById('closeNote').addEventListener('click', closeNotePanel);
+
+document.getElementById('deleteNote').addEventListener('click', () => {
+  if (selectedBoxId && data.boxes[selectedBoxId]) {
+    const cid = data.boxes[selectedBoxId].circleId;
+    deleteBox(selectedBoxId);
+    if (!data.circles[currentCircleId]) {
+      currentCircleId = cid;
+    }
+    renderCurrent();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeNotePanel();
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    document.getElementById('saveNote').click();
+  }
+});
+
+// ====== ADD BUTTON ======
+document.getElementById('addBtn').addEventListener('click', () => {
+  const cid = currentCircleId;
+  addBox(cid);
+  renderCurrent();
+  // rotate camera target slightly to see new box
+  controls.update();
+});
+
+// ====== RAYCASTER INTERACTION ======
+function onPointerDown(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  const mouse = new THREE.Vector2(x, y);
+  raycaster.setFromCamera(mouse, camera);
+
+  const objects = raycasterTargets.map(t => t.object);
+  const hits = raycaster.intersectObjects(objects);
+  if (hits.length === 0) return;
+
+  const hitObj = hits[0].object;
+  for (const target of raycasterTargets) {
+    if (target.object === hitObj) {
+      if (target.type === 'box') {
+        openNotePanel(target.boxId);
+      } else if (target.type === 'path') {
+        const subKey = getOrCreateSubCircle(target.circleId, target.boxAIdx, target.boxBIdx);
+        currentCircleId = subKey;
+        renderCurrent();
+      }
+      return;
+    }
+  }
+}
+
+renderer.domElement.addEventListener('pointerdown', onPointerDown);
+
+// ====== RESIZE ======
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ====== ANIMATION ======
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+// ====== INIT ======
+initData();
+renderCurrent();
+animate();
+
+</script>
+</body>
+</html>

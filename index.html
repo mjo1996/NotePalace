@@ -395,39 +395,7 @@ function renderCurrent() {
   const isSub = !!circle.parentGap;
   const radius = isSub ? 3 : 5;
 
-  // If sub-circle, show ghost markers at parent gap boxes
-  if (isSub && circle.parentGap) {
-    const parent = data.circles[circle.parentGap.circleId];
-    if (parent) {
-      for (const idx of [circle.parentGap.boxAIdx, circle.parentGap.boxBIdx]) {
-        const pos = getBoxPosition(circle.parentGap.circleId, idx, parent.boxIds.length);
-        const box = data.boxes[parent.boxIds[idx]];
-        if (box) {
-          const ghostGeo = new THREE.BoxGeometry(0.45, 0.35, 0.45);
-          const ghostMat = new THREE.MeshBasicMaterial({ color: box.color, transparent: true, opacity: 0.15, wireframe: true });
-          const ghost = new THREE.Mesh(ghostGeo, ghostMat);
-          ghost.position.set(pos.x, 0, pos.z);
-          circleGroup.add(ghost);
-          const ld = document.createElement('div');
-          ld.textContent = box.number;
-          ld.style.cssText = 'color:rgba(255,255,255,0.15);font-size:10px;font-weight:400;text-shadow:0 2px 8px rgba(0,0,0,0.5)';
-          const l = new CSS2DObject(ld);
-          l.position.set(pos.x, 0.45, pos.z);
-          circleGroup.add(l);
-        }
-      }
-      // Connection line from origin to parent gap midpoint
-      const gapA = getBoxPosition(circle.parentGap.circleId, circle.parentGap.boxAIdx, parent.boxIds.length);
-      const gapB = getBoxPosition(circle.parentGap.circleId, circle.parentGap.boxBIdx, parent.boxIds.length);
-      const midX = (gapA.x + gapB.x) / 2, midZ = (gapA.z + gapB.z) / 2;
-      const linePts = [new THREE.Vector3(0, -0.3, 0), new THREE.Vector3(midX, -0.3, midZ)];
-      const lineGeo = new THREE.BufferGeometry().setFromPoints(linePts);
-      const lineMat = new THREE.LineDashedMaterial({ color: 0x667eea, transparent: true, opacity: 0.1, dashSize: 0.1, gapSize: 0.1 });
-      const line = new THREE.Line(lineGeo, lineMat);
-      line.computeLineDistances();
-      circleGroup.add(line);
-    }
-  }
+  // (removed ghost markers)
 
   // Circle guide
   const ringGeo = new THREE.RingGeometry(radius - 0.03, radius + 0.03, 64);
